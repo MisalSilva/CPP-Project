@@ -1,0 +1,64 @@
+<svg width="500" height="500" viewBox="-6 -6 12 12" xmlns="http://www.w3.org/2000/svg" style="background-color: #f0f0f0; border: 1px solid #ccc;">
+
+  <defs>
+    <!-- Style definitions -->
+    <style>
+      .field-boundary { fill: none; stroke: #666; stroke-width: 0.1; stroke-dasharray: 0.2, 0.2; }
+      .center-mark { fill: #d9534f; }
+      .particle { fill: #428bca; stroke: #3071a9; stroke-width: 0.05; }
+      .force-vector { stroke: #5cb85c; stroke-width: 0.08; marker-end: url(#arrowhead); }
+      .force-arrow-head { fill: #5cb85c; }
+      .label { font-family: 'Arial', sans-serif; font-size: 0.5px; fill: #333; text-anchor: middle; }
+      .caption { font-family: 'Arial', sans-serif; font-size: 0.4px; fill: #555; text-anchor: middle; } /* Changed anchor to middle for caption */
+      .particle-label { font-family: 'Arial', sans-serif; font-size: 0.4px; fill: #fff; text-anchor: middle; dominant-baseline: central;}
+      .info-text { font-family: 'Arial', sans-serif; font-size: 0.35px; fill: #555; text-anchor: start; } /* Smaller font for info */
+    </style>
+    <!-- Arrowhead marker definition -->
+    <marker id="arrowhead" markerWidth="5" markerHeight="3.5" refX="4.5" refY="1.75" orient="auto">
+      <polygon points="0 0, 5 1.75, 0 3.5" class="force-arrow-head" />
+    </marker>
+  </defs>
+
+  <!-- Grid lines (optional) -->
+  <g id="grid" stroke="#ddd" stroke-width="0.02">
+      <path d="M -5 -5 L 5 -5 L 5 5 L -5 5 Z" fill="white"/> <!-- White background for field -->
+      <line x1="-5" y1="0" x2="5" y2="0" /> <!-- X-axis -->
+      <line x1="0" y1="-5" x2="0" y2="5" /> <!-- Y-axis -->
+      <!-- Vertical lines -->
+      <line x1="-4" y1="-5" x2="-4" y2="5"/><line x1="-3" y1="-5" x2="-3" y2="5"/><line x1="-2" y1="-5" x2="-2" y2="5"/><line x1="-1" y1="-5" x2="-1" y2="5"/>
+      <line x1="1" y1="-5" x2="1" y2="5"/><line x1="2" y1="-5" x2="2" y2="5"/><line x1="3" y1="-5" x2="3" y2="5"/><line x1="4" y1="-5" x2="4" y2="5"/>
+      <!-- Horizontal lines -->
+      <line x1="-5" y1="-4" x2="5" y2="-4"/><line x1="-5" y1="-3" x2="5" y2="-3"/><line x1="-5" y1="-2" x2="5" y2="-2"/><line x1="-5" y1="-1" x2="5" y2="-1"/>
+      <line x1="-5" y1="1" x2="5" y2="1"/><line x1="-5" y1="2" x2="5" y2="2"/><line x1="-5" y1="3" x2="5" y2="3"/><line x1="-5" y1="4" x2="5" y2="4"/>
+  </g>
+
+
+  <!-- Containment Field Boundary -->
+  <rect class="field-boundary" x="-5" y="-5" width="10" height="10" />
+  <!-- Adjusted Caption Position and Anchor -->
+  <text class="caption" x="0" y="-5.3">Containment Field (Size: 10)</text>
+
+  <!-- Center Mark -->
+  <circle class="center-mark" cx="0" cy="0" r="0.1" />
+  <text class="label" x="0" y="-0.2">(0, 0)</text>
+
+  <!-- Example Particle -->
+  <g id="particle-group">
+      <circle class="particle" cx="3" cy="2" r="0.4" />
+      <text class="particle-label" x="3" y="2">P</text>
+      <!-- Adjusted Particle Label Position and Anchor -->
+      <text class="label" x="3" y="1.1" style="text-anchor: middle;">Particle at (3, -2)</text>
+  </g>
+
+  <!-- Force Vector applied to the particle -->
+  <!-- Vector points from (3,2) towards (0,0) -->
+  <!-- Let's draw the arrow with a representative length (e.g., 1.5 units) -->
+  <!-- Vector direction is (-3, -2), unit vector is approx (-0.83, -0.55) -->
+  <!-- Arrow end point: (3, 2) + 1.5 * (-0.83, -0.55) = (3 - 1.25, 2 - 0.83) = (1.75, 1.17) -->
+  <g id="force-group">
+      <line class="force-vector" x1="3" y1="2" x2="4.75" y2="3.3" />
+      <!-- Adjusted Force Label Position -->
+      <text class="label" x="2.4" y="1.5" fill="#080" style="text-anchor: start;">Force</text>
+  </g>
+
+</svg>

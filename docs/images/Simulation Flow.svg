@@ -1,0 +1,52 @@
+<svg width="400" height="550" viewBox="0 0 120 165" xmlns="http://www.w3.org/2000/svg" style="background-color: #f9f9f9; border: 1px solid #ccc;">
+
+  <defs>
+    <!-- Arrowhead marker definition -->
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="7" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#333" />
+    </marker>
+    <!-- Style definitions -->
+    <style>
+      .process-box { fill: #e0f7fa; stroke: #00796b; stroke-width: 0.5; rx: 3; ry: 3; }
+      .connector { stroke: #333; stroke-width: 0.6; marker-end: url(#arrowhead); }
+      .label-text { font-family: Arial, sans-serif; font-size: 5px; text-anchor: middle; fill: #333; dominant-baseline: central;}
+      .title-text { font-family: Arial, sans-serif; font-size: 7px; text-anchor: middle; fill: #000; font-weight: bold;}
+      .info-text { font-family: Arial, sans-serif; font-size: 3.5px; text-anchor: middle; fill: #555;}
+    </style>
+  </defs>
+
+  <!-- Title -->
+  <text x="60" y="10" class="title-text">Simulation Flow</text>
+
+  <!-- Start (Conceptual) -->
+  <!-- Optional: <ellipse cx="60" cy="25" rx="20" ry="8" fill="#dcedc8" stroke="#558b2f" stroke-width="0.5"/> -->
+  <!-- Optional: <text x="60" y="25" class="label-text">Start Step</text> -->
+  <!-- Optional: <line x1="60" y1="33" x2="60" y2="40" class="connector" /> -->
+
+  <!-- Update Positions Box -->
+  <rect x="30" y="25" width="60" height="20" class="process-box"/>
+  <text x="60" y="32.5" class="label-text">Update Particle Positions</text>
+  <text x="60" y="38.5" class="info-text">(using Time Step)</text>
+  <line x1="60" y1="45" x2="60" y2="55" class="connector" />
+
+  <!-- Handle Collisions Box -->
+  <rect x="30" y="55" width="60" height="20" class="process-box"/>
+  <text x="60" y="65" class="label-text">Handle Particle Collisions</text>
+  <line x1="60" y1="75" x2="60" y2="85" class="connector" />
+
+  <!-- Apply Forces Box -->
+  <rect x="30" y="85" width="60" height="20" class="process-box"/>
+  <text x="60" y="92.5" class="label-text">Apply Containment Forces</text>
+  <text x="60" y="98.5" class="info-text">(using Time Step)</text>
+  <line x1="60" y1="105" x2="60" y2="115" class="connector" />
+
+  <!-- Remove Escaped Particles Box -->
+  <rect x="30" y="115" width="60" height="20" class="process-box"/>
+  <text x="60" y="125" class="label-text">Remove Escaped Particles</text>
+
+   <!-- End (Conceptual) -->
+  <!-- Optional: <line x1="60" y1="135" x2="60" y2="142" class="connector" /> -->
+  <!-- Optional: <ellipse cx="60" cy="150" rx="20" ry="8" fill="#ffcdd2" stroke="#c62828" stroke-width="0.5"/> -->
+  <!-- Optional: <text x="60" y="150" class="label-text">End Step</text> -->
+
+</svg>
