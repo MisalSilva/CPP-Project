@@ -7,7 +7,11 @@
 #include <map>
 #include <fstream>       
 #include <stdexcept>    
+#include <sstream>
 #include <nlohmann/json.hpp> 
+
+// Define the JSON type explicitly
+using json = nlohmann::json;
 
 Config loadConfig(const std::string& filename) {
     std::ifstream configFile(filename);
@@ -38,24 +42,27 @@ Config loadConfig(const std::string& filename) {
          return root.at(group).at(key);
      };
 
+    try {
+        cfg.num_particles = get_nested_or_throw(j, "simulation", "num_particles");
+        cfg.field_size = get_nested_or_throw(j, "simulation", "field_size");
+        cfg.initial_threads = get_nested_or_throw(j, "simulation", "initial_threads");
+        cfg.time_step = get_nested_or_throw(j, "simulation", "time_step");
 
-    cfg.num_particles = get_nested_or_throw(j, "simulation", "num_particles");
-    cfg.field_size = get_nested_or_throw(j, "simulation", "field_size");
-    cfg.initial_threads = get_nested_or_throw(j, "simulation", "initial_threads");
-    cfg.time_step = get_nested_or_throw(j, "simulation", "time_step");
+        cfg.initial_energy = get_nested_or_throw(j, "particle", "initial_energy");
+        cfg.max_energy = get_nested_or_throw(j, "particle", "max_energy");
+        cfg.particle_radius = get_nested_or_throw(j, "particle", "radius");
 
-    cfg.initial_energy = get_nested_or_throw(j, "particle", "initial_energy");
-    cfg.max_energy = get_nested_or_throw(j, "particle", "max_energy");
-    cfg.particle_radius = get_nested_or_throw(j, "particle", "radius");
+        cfg.initial_strength = get_nested_or_throw(j, "containment_field", "initial_strength");
+        cfg.initial_decay_rate = get_nested_or_throw(j, "containment_field", "initial_decay_rate");
+        cfg.field_grid_size = get_nested_or_throw(j, "containment_field", "grid_size");
 
-    cfg.initial_strength = get_nested_or_throw(j, "containment_field", "initial_strength");
-    cfg.initial_decay_rate = get_nested_or_throw(j, "containment_field", "initial_decay_rate");
-    cfg.field_grid_size = get_nested_or_throw(j, "containment_field", "grid_size");
-
-    cfg.target_fps = get_nested_or_throw(j, "rendering", "target_fps");
-    cfg.grid_width = get_nested_or_throw(j, "rendering", "grid_width");
-    cfg.grid_height = get_nested_or_throw(j, "rendering", "grid_height");
-    cfg.max_density_level = get_nested_or_throw(j, "rendering", "max_density_level");
+        cfg.target_fps = get_nested_or_throw(j, "rendering", "target_fps");
+        cfg.grid_width = get_nested_or_throw(j, "rendering", "grid_width");
+        cfg.grid_height = get_nested_or_throw(j, "rendering", "grid_height");
+        cfg.max_density_level = get_nested_or_throw(j, "rendering", "max_density_level");
+    } catch (const json::type_error& e) {
+        throw std::runtime_error("Configuration type error: " + std::string(e.what()));
+    }
 
     const auto& density_map_json = get_nested_or_throw(j, "rendering", "density_map");
     if (!density_map_json.is_object()) {
@@ -81,10 +88,13 @@ Config loadConfig(const std::string& filename) {
     return cfg;
 }
 
-void renderASCII(const std::vector<std::unique_ptr<Particle>>& particles, double fieldSize, const Config& cfg) {
+std::string renderASCIIToString(const std::vector<std::unique_ptr<Particle>>& particles, double fieldSize, const Config& cfg) {
     std::vector<std::vector<int>> gridCounts(cfg.grid_height, std::vector<int>(cfg.grid_width, 0));
+    std::stringstream output;
 
     for (const auto& particle : particles) {
+        if (!particle) continue; // Skip null pointers
+
         double x = particle->getX();
         double y = particle->getY();
 
@@ -97,49 +107,81 @@ void renderASCII(const std::vector<std::unique_ptr<Particle>>& particles, double
         gridCounts[row][col]++;
     }
 
-    std::cout << "\033[2J\033[H"; 
+    output << "\033[2J\033[H"; // Clear screen and move cursor to top-left
 
-    std::cout << '+' << std::string(cfg.grid_width, '-') << "+\n";
+    output << '+' << std::string(cfg.grid_width, '-') << "+\n";
 
     for (int i = 0; i < cfg.grid_height; ++i) {
-        std::cout << '|'; 
+        output << '|'; 
         for (int j = 0; j < cfg.grid_width; ++j) {
             int count = gridCounts[i][j];
             if (count == 0) {
-                std::cout << ' ';
+                output << ' ';
             } else {
                 int level = std::min(count, cfg.max_density_level);
                 auto it = cfg.density_map.find(level);
-                std::cout << (it != cfg.density_map.end() ? it->second : ' '); 
+                output << (it != cfg.density_map.end() ? it->second : ' '); 
             }
         }
-        std::cout << "|\n"; 
+        output << "|\n"; 
     }
 
-    std::cout << '+' << std::string(cfg.grid_width, '-') << "+\n";
+    output << '+' << std::string(cfg.grid_width, '-') << "+\n";
 
-    std::cout << std::flush;
+    return output.str();
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     try {
-        const std::string configFilename = "config.json";
+        // Allow configurable config file path
+        std::string configFilename = "config.json";
+        if (argc > 1) {
+            configFilename = argv[1];
+        }
+        
         Config config = loadConfig(configFilename);
         std::cout << "Configuration loaded from " << configFilename << std::endl;
 
         Simulation simulation(config);
-
         simulation.start();
 
         const double FRAME_TIME = 1.0 / config.target_fps;
+        
+        // Variables for FPS calculation
+        auto lastFpsUpdateTime = std::chrono::high_resolution_clock::now();
+        int frameCount = 0;
+        double currentFps = 0.0;
 
         while (simulation.getParticleCount() > 0) {
             auto frameStart = std::chrono::high_resolution_clock::now();
 
-            simulation.step();
+            try {
+                simulation.step();
+            } catch (const std::exception& e) {
+                std::cerr << "Error during simulation step: " << e.what() << std::endl;
+                break;
+            }
 
-            renderASCII(simulation.getParticles(), config.field_size, config);
+            // Render to string buffer first
+            std::string renderOutput = renderASCIIToString(simulation.getParticles(), config.field_size, config);
+            std::cout << renderOutput;
 
+            // Update FPS counter
+            frameCount++;
+            auto now = std::chrono::high_resolution_clock::now();
+            auto elapsedTime = std::chrono::duration<double>(now - lastFpsUpdateTime).count();
+            
+            if (elapsedTime >= 1.0) {  // Update FPS every second
+                currentFps = frameCount / elapsedTime;
+                frameCount = 0;
+                lastFpsUpdateTime = now;
+                
+                std::cout << "\nParticles: " << simulation.getParticleCount()
+                          << " | Energy: " << simulation.getTotalEnergy()
+                          << " | FPS: " << currentFps << std::endl;
+            }
+
+            // Frame rate limiting
             auto frameEnd = std::chrono::high_resolution_clock::now();
             auto frameDuration = std::chrono::duration<double>(frameEnd - frameStart).count();
 
@@ -148,27 +190,17 @@ int main() {
                     std::chrono::duration<double>(FRAME_TIME - frameDuration)
                 );
             }
-
-            static int frameCount = 0;
-             if (++frameCount % 30 == 0) {
-                 auto now = std::chrono::high_resolution_clock::now();
-                 static auto lastStatTime = now;
-                 auto elapsed = std::chrono::duration<double>(now - lastStatTime).count();
-                 double actualFps = (elapsed > 1e-6) ? (30.0 / elapsed) : 0.0;
-                 lastStatTime = now;
-
-                std::cout << "\nParticles: " << simulation.getParticleCount()
-                          << " | Energy: " << simulation.getTotalEnergy()
-                          << " | FPS: " << actualFps << std::endl;
-            }
         }
 
         simulation.stop();
         std::cout << "Simulation ended. All particles escaped.\n";
 
     } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+        std::cerr << "Fatal error: " << e.what() << std::endl;
         return 1;
+    } catch (...) {
+        std::cerr << "Unknown fatal error occurred." << std::endl;
+        return 2;
     }
     return 0;
-} 
+}
