@@ -8,11 +8,62 @@
 #include <fstream>       
 #include <stdexcept>    
 #include <sstream>
+#include <functional>
+#include <cstring>
 #include <nlohmann/json.hpp> 
 
 // Define the JSON type explicitly
 using json = nlohmann::json;
 
+// Error codes for test integration
+enum ExitCodes {
+    SUCCESS = 0,
+    CONFIG_ERROR = 1,
+    SIMULATION_ERROR = 2,
+    RENDERING_ERROR = 3,
+    UNKNOWN_ERROR = 4
+};
+
+// Forward declarations
+Config loadConfig(const std::string& filename);
+std::string renderASCIIToString(const std::vector<std::unique_ptr<Particle>>& particles, 
+                               double fieldSize, const Config& cfg, bool useEscapeCodes = true);
+
+// Command line options
+struct ProgramOptions {
+    std::string configFile = "config.json";
+    bool testMode = false;
+    bool silentMode = false;
+    int maxSteps = -1;  // -1 means unlimited
+};
+
+ProgramOptions parseCommandLine(int argc, char* argv[]) {
+    ProgramOptions options;
+    
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
+            options.configFile = argv[++i];
+        } else if (strcmp(argv[i], "--test") == 0) {
+            options.testMode = true;
+            options.silentMode = true;  // Test mode implies silent mode
+        } else if (strcmp(argv[i], "--silent") == 0) {
+            options.silentMode = true;
+        } else if (strcmp(argv[i], "--max-steps") == 0 && i + 1 < argc) {
+            try {
+                options.maxSteps = std::stoi(argv[++i]);
+            } catch (...) {
+                std::cerr << "Invalid value for --max-steps: " << argv[i] << std::endl;
+            }
+        } else if (strncmp(argv[i], "--", 2) != 0) {
+            // If not a flag, assume it's the config file
+            options.configFile = argv[i];
+        }
+    }
+    
+    return options;
+}
+
+// Function to load configuration from file
 Config loadConfig(const std::string& filename) {
     std::ifstream configFile(filename);
     if (!configFile.is_open()) {
@@ -62,17 +113,20 @@ Config loadConfig(const std::string& filename) {
         cfg.max_density_level = get_nested_or_throw(j, "rendering", "max_density_level");
     } catch (const json::type_error& e) {
         throw std::runtime_error("Configuration type error: " + std::string(e.what()));
+    } catch (const json::out_of_range& e) {
+        throw std::runtime_error("Configuration access error: " + std::string(e.what()));
     }
 
     const auto& density_map_json = get_nested_or_throw(j, "rendering", "density_map");
     if (!density_map_json.is_object()) {
          throw std::runtime_error("Configuration error: rendering.density_map must be an object.");
     }
+    
     for (auto& [key_str, val] : density_map_json.items()) {
         try {
             int key = std::stoi(key_str);
-            if (!val.is_string() || val.get<std::string>().length() != 1) {
-                 throw std::runtime_error("Configuration error: density_map values must be single characters (strings).");
+            if (!val.is_string() || val.get<std::string>().empty()) {
+                 throw std::runtime_error("Configuration error: density_map values must be non-empty strings.");
             }
             cfg.density_map[key] = val.get<std::string>()[0];
         } catch (const std::invalid_argument& e) {
@@ -81,36 +135,57 @@ Config loadConfig(const std::string& filename) {
              throw std::runtime_error("Configuration error: density_map key out of range: " + key_str);
         }
     }
+    
     if (cfg.density_map.empty()) {
-        std::cerr << "Warning: rendering.density_map is empty in config file." << std::endl;
+        std::cerr << "Warning: rendering.density_map is empty in config file. Using default values." << std::endl;
+        // Provide default density map values
+        cfg.density_map[1] = '.';
+        cfg.density_map[2] = 'o';
+        cfg.density_map[3] = 'O';
+        cfg.density_map[4] = '@';
+        cfg.density_map[5] = '#';
     }
 
     return cfg;
 }
 
-std::string renderASCIIToString(const std::vector<std::unique_ptr<Particle>>& particles, double fieldSize, const Config& cfg) {
+// Rendering function that returns a string instead of printing directly
+std::string renderASCIIToString(const std::vector<std::unique_ptr<Particle>>& particles, 
+                               double fieldSize, const Config& cfg, bool useEscapeCodes) {
+    if (particles.empty()) {
+        return "No particles to render.";
+    }
+    
     std::vector<std::vector<int>> gridCounts(cfg.grid_height, std::vector<int>(cfg.grid_width, 0));
     std::stringstream output;
 
+    // Count particles in each cell
     for (const auto& particle : particles) {
         if (!particle) continue; // Skip null pointers
 
         double x = particle->getX();
         double y = particle->getY();
 
+        // Convert particle position to grid coordinates
         int col = static_cast<int>((x + fieldSize/2) * cfg.grid_width / fieldSize);
         int row = static_cast<int>((y + fieldSize/2) * cfg.grid_height / fieldSize);
 
-        col = std::clamp(col, 0, cfg.grid_width - 1);
-        row = std::clamp(row, 0, cfg.grid_height - 1);
+        // Ensure coordinates are within grid bounds
+        col = std::max(0, std::min(col, cfg.grid_width - 1));
+        row = std::max(0, std::min(row, cfg.grid_height - 1));
 
         gridCounts[row][col]++;
     }
 
-    output << "\033[2J\033[H"; // Clear screen and move cursor to top-left
+    // Clear screen only if not in test mode
+    if (useEscapeCodes) {
+        output << "\033[2J\033[H"; // Clear screen and move cursor to top-left
+    }
 
+    // Draw the top border
     output << '+' << std::string(cfg.grid_width, '-') << "+\n";
 
+    // Draw the grid content
     for (int i = 0; i < cfg.grid_height; ++i) {
         output << '|'; 
         for (int j = 0; j < cfg.grid_width; ++j) {
@@ -118,30 +193,32 @@ std::string renderASCIIToString(const std::vector<std::unique_ptr<Particle>>& pa
             if (count == 0) {
                 output << ' ';
             } else {
+                // Cap the density level and find the corresponding character
                 int level = std::min(count, cfg.max_density_level);
                 auto it = cfg.density_map.find(level);
-                output << (it != cfg.density_map.end() ? it->second : ' '); 
+                char displayChar = (it != cfg.density_map.end()) ? it->second : ' ';
+                output << displayChar;
             }
         }
         output << "|\n"; 
     }
 
+    // Draw the bottom border
     output << '+' << std::string(cfg.grid_width, '-') << "+\n";
 
     return output.str();
 }
 
-int main(int argc, char* argv[]) {
+// Main simulation function that can be called from tests
+int runSimulation(const ProgramOptions& options, std::ostream& output = std::cout) {
     try {
-        // Allow configurable config file path
-        std::string configFilename = "config.json";
-        if (argc > 1) {
-            configFilename = argv[1];
+        // Load configuration
+        Config config = loadConfig(options.configFile);
+        if (!options.silentMode) {
+            output << "Configuration loaded from " << options.configFile << std::endl;
         }
-        
-        Config config = loadConfig(configFilename);
-        std::cout << "Configuration loaded from " << configFilename << std::endl;
 
+        // Initialize simulation
         Simulation simulation(config);
         simulation.start();
 
@@ -151,56 +228,86 @@ int main(int argc, char* argv[]) {
         auto lastFpsUpdateTime = std::chrono::high_resolution_clock::now();
         int frameCount = 0;
         double currentFps = 0.0;
+        int stepCount = 0;
 
-        while (simulation.getParticleCount() > 0) {
+        // Main simulation loop
+        while (simulation.getParticleCount() > 0 && 
+              (options.maxSteps == -1 || stepCount < options.maxSteps)) {
             auto frameStart = std::chrono::high_resolution_clock::now();
 
             try {
                 simulation.step();
+                stepCount++;
             } catch (const std::exception& e) {
-                std::cerr << "Error during simulation step: " << e.what() << std::endl;
-                break;
+                output << "Error during simulation step: " << e.what() << std::endl;
+                return SIMULATION_ERROR;
             }
 
-            // Render to string buffer first
-            std::string renderOutput = renderASCIIToString(simulation.getParticles(), config.field_size, config);
-            std::cout << renderOutput;
-
-            // Update FPS counter
-            frameCount++;
-            auto now = std::chrono::high_resolution_clock::now();
-            auto elapsedTime = std::chrono::duration<double>(now - lastFpsUpdateTime).count();
-            
-            if (elapsedTime >= 1.0) {  // Update FPS every second
-                currentFps = frameCount / elapsedTime;
-                frameCount = 0;
-                lastFpsUpdateTime = now;
-                
-                std::cout << "\nParticles: " << simulation.getParticleCount()
-                          << " | Energy: " << simulation.getTotalEnergy()
-                          << " | FPS: " << currentFps << std::endl;
-            }
-
-            // Frame rate limiting
-            auto frameEnd = std::chrono::high_resolution_clock::now();
-            auto frameDuration = std::chrono::duration<double>(frameEnd - frameStart).count();
-
-            if (frameDuration < FRAME_TIME) {
-                std::this_thread::sleep_for(
-                    std::chrono::duration<double>(FRAME_TIME - frameDuration)
+            // Only render and show stats if not in silent mode
+            if (!options.silentMode) {
+                // Render the current state
+                std::string renderOutput = renderASCIIToString(
+                    simulation.getParticles(), 
+                    config.field_size, 
+                    config, 
+                    !options.testMode
                 );
+                output << renderOutput;
+
+                // Update FPS counter
+                frameCount++;
+                auto now = std::chrono::high_resolution_clock::now();
+                auto elapsedTime = std::chrono::duration<double>(now - lastFpsUpdateTime).count();
+                
+                if (elapsedTime >= 1.0) {  // Update FPS every second
+                    currentFps = frameCount / elapsedTime;
+                    frameCount = 0;
+                    lastFpsUpdateTime = now;
+                    
+                    output << "Particles: " << simulation.getParticleCount()
+                           << " | Energy: " << simulation.getTotalEnergy()
+                           << " | FPS: " << currentFps 
+                           << " | Steps: " << stepCount << std::endl;
+                }
+            }
+
+            // Frame rate limiting (only if not in test mode)
+            if (!options.testMode) {
+                auto frameEnd = std::chrono::high_resolution_clock::now();
+                auto frameDuration = std::chrono::duration<double>(frameEnd - frameStart).count();
+
+                if (frameDuration < FRAME_TIME) {
+                    std::this_thread::sleep_for(
+                        std::chrono::duration<double>(FRAME_TIME - frameDuration)
+                    );
+                }
             }
         }
 
+        // Clean up simulation
         simulation.stop();
-        std::cout << "Simulation ended. All particles escaped.\n";
+        
+        if (!options.silentMode) {
+            if (simulation.getParticleCount() == 0) {
+                output << "Simulation ended. All particles escaped.\n";
+            } else {
+                output << "Simulation ended. Maximum steps reached.\n";
+            }
+        }
+        
+        return SUCCESS;
 
     } catch (const std::exception& e) {
-        std::cerr << "Fatal error: " << e.what() << std::endl;
-        return 1;
+        output << "Fatal error: " << e.what() << std::endl;
+        return CONFIG_ERROR;
     } catch (...) {
-        std::cerr << "Unknown fatal error occurred." << std::endl;
-        return 2;
+        output << "Unknown fatal error occurred." << std::endl;
+        return UNKNOWN_ERROR;
     }
-    return 0;
+}
+
+// Main function
+int main(int argc, char* argv[]) {
+    ProgramOptions options = parseCommandLine(argc, argv);
+    return runSimulation(options);
 }
